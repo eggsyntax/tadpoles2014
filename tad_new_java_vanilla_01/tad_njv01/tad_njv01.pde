@@ -33,21 +33,27 @@ At a constant density of ~.007 tads-per-pixel,
    800x800:  <  5,000 tads
 
 How can I get greatest efficiency in reading from the camera? What exactly is a Capture anyway?
+Note: tried cutting down the frame cap rate (calls to captureEvent()) by as much as a factor of 50;
+    it made almost no difference to average time per frame.
 
 Two ways to get substantially greater efficiency:
 1) Not all tadpoles move at once. They spend some idle time between moves.
 2) Not all pixels are updated for brightnesss every frame.
 3) (If I'm using the tadpole-based approach) caching what each tadpole sees might give me some gains. Maybe.
 
+Efficient way to user random numbers to choose a limited # of tadpoles to move:
+    Give the tadpoles a threshold for moving; aka their desire to move builds up gradually over time.
+    Cycle through a list of random numbers on each frame and add a random amount to each tadpole's desire.
+    Maybe make the list length be num_tadpoles + 1
 
 Note to self: can run from vim using: :!make > /dev/null 2>&1 &
 Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/running-make-from-gvim-in-background
 */
 
 // constants //
-final static int NUMTADS = 12000;
+final static int NUMTADS = 36000;
 
-final static float VMAX = 500, AMAX = 100;
+final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
 final static int xRad = 4, yRad = 6; // size of circle
 
@@ -56,7 +62,7 @@ int vision = 5; // effectively a constant for now but may be implemented
                  // more extensively later. Note that for convenience this
                  // is not a true range but the x & y bounds of a box.
                  
-int i,j,ii,jj; // Counters, defining at top level for greatest efficiency
+int i,j,ii,jj; // Counters, defining at top level for greatest efficiency (maybe overkill ;) )
 
 float maxDist;
 boolean showCapture = false;
@@ -66,7 +72,7 @@ PImage bg;
 Capture myCap;
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
-float time,avetime,framecount, lastmillis;
+float time,avetime,lastmillis;
 
 
 void cameraCheck(String[] cameras) {
@@ -128,7 +134,7 @@ void draw() {
   background(0,0,.6);
   
   // capture camera on every 10th frame
-  if (framecount % 10 == 0 && myCap.available()) {
+  if (frameCount % 10 == 0 && myCap.available()) {
     captureEvent(myCap);
   }
   
@@ -147,13 +153,13 @@ void draw() {
     image(bg,0,0);
   }
 
-  time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*framecount) + time) / (framecount+1); 
+  time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
 
   // report performance statistics
-  framecount++; 
-  if (framecount==50) {
-    framecount = 0;
-    println ("\nave: " + avetime + " ms; cur: " + time + "; framecount: " + framecount);
+  // frameCount++; 
+  if (frameCount%50==0) {
+  //   frameCount = 0;
+    println ("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
   }
 }
 
