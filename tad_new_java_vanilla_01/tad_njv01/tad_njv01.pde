@@ -32,10 +32,16 @@ At a constant density of ~.007 tads-per-pixel,
   1200x1200: < 12,000 tads
    800x800:  <  5,000 tads
 
+How can I get greatest efficiency in reading from the camera? What exactly is a Capture anyway?
+
 Two ways to get substantially greater efficiency:
 1) Not all tadpoles move at once. They spend some idle time between moves.
 2) Not all pixels are updated for brightnesss every frame.
 3) (If I'm using the tadpole-based approach) caching what each tadpole sees might give me some gains. Maybe.
+
+
+Note to self: can run from vim using: :!make > /dev/null 2>&1 &
+Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/running-make-from-gvim-in-background
 */
 
 // constants //
@@ -62,6 +68,7 @@ int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
 float time,avetime,framecount, lastmillis;
 
+
 void cameraCheck(String[] cameras) {
   if (cameras.length == 0) {
       println("There are no cameras available for capture.");
@@ -80,7 +87,8 @@ void cameraSetup() {
   // The camera can be initialized directly using an 
   // element from the array returned by list().
   // But me, I'm doing it by requesting a specific 
-  // width/height/framerate based on what I see in the list.
+  // width/height/framerate based on what I see in the list
+  // prov
   myCap = new Capture(this, width, height, camFrameRate);
   myCap.start();     
 }
@@ -119,8 +127,8 @@ void draw() {
   
   background(0,0,.6);
   
-  // capture camera
-  if (myCap.available()) {
+  // capture camera on every 10th frame
+  if (framecount % 10 == 0 && myCap.available()) {
     captureEvent(myCap);
   }
   
@@ -145,7 +153,7 @@ void draw() {
   framecount++; 
   if (framecount==50) {
     framecount = 0;
-    println ("\nave: " + avetime + "; cur: " + time + "; framecount: " + framecount);
+    println ("\nave: " + avetime + " ms; cur: " + time + "; framecount: " + framecount);
   }
 }
 
