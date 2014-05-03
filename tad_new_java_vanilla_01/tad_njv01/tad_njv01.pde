@@ -15,17 +15,43 @@ import processing.video.Capture;
 
 // TODO: tadpoles don't want to be too crowded.
 
+/*
+
+One key question: am I better off figuring out brightness of all points up front, or doing it tadpole by tadpole?
+All points:
+  Say it's 1000 x 800. That's 800,000
+Tadpoles (assumptions: they look 5 pixels away and there are 20,000 tadpoles)
+  Num pixels is (5*2+1) * (5*2+1) - 1 = 120.
+  120 * 20,000 = 2,400,000
+
+But the numbers change a lot based on width/height and number of tadpoles.
+
+For what number of pixels is the tadpole approach more efficient, assuming the two approaches are equal in cost?
+At a constant density of ~.007 tads-per-pixel,
+  1600x1600: < 20,000 tads
+  1200x1200: < 12,000 tads
+   800x800:  <  5,000 tads
+
+Two ways to get substantially greater efficiency:
+1) Not all tadpoles move at once. They spend some idle time between moves.
+2) Not all pixels are updated for brightnesss every frame.
+3) (If I'm using the tadpole-based approach) caching what each tadpole sees might give me some gains. Maybe.
+*/
+
 // constants //
 final static int NUMTADS = 12000;
+
 final static float VMAX = 500, AMAX = 100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
 final static int xRad = 4, yRad = 6; // size of circle
 
-// Currently not used because 
+// How far should tadpoles look around them when deciding which way to move?
 int vision = 5; // effectively a constant for now but may be implemented
                  // more extensively later. Note that for convenience this
                  // is not a true range but the x & y bounds of a box.
-int i,j,ii,jj;
+                 
+int i,j,ii,jj; // Counters, defining at top level for greatest efficiency
+
 float maxDist;
 boolean showCapture = false;
 Tad t;
@@ -67,7 +93,8 @@ void setup() {
   float brightnessInitial;
   
   frameRate(30);
-  maxDist = sqrt(width*width + height*height);
+  maxDist = sqrt(width*width + height*height); // What is the farthest one point can be from another?
+  
   smooth();
   colorMode(HSB,1.0);
   
