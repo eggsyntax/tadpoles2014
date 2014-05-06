@@ -186,6 +186,7 @@ void captureEvent (Capture myCap) { // Is this actually in use or dead code?
 }
 
 class Point {
+    // Holds only state.
     public final float x, y;
     public Point(float x, float y) {
         this.x = x;
@@ -195,8 +196,14 @@ class Point {
         this.x = float(x);
         this.y = float(y);
     }
-    
+    public Point() {
+      // default to 0
+      this.x = 0;
+      this.y = 0;
+    }
 }
+
+class Vector extends Point {} // Same behavior but conceptually different
 
 class Tad {
     public float xv,yv,xa,ya,bri,xvDes,yvDes,xaDes,yaDes,age;
