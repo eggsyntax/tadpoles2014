@@ -77,8 +77,8 @@ float maxDist;
 boolean showCapture = false;
 Tad t;
 Tad[] tads = new Tad[NUMTADS];
-PImage bg;
-Capture myCap;
+PImage capAsImage;
+Capture capture;
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
 float time,avetime,lastmillis;
@@ -105,8 +105,8 @@ void cameraSetup() {
   // But me, I'm doing it by requesting a specific 
   // width/height/framerate based on what I see in the list
   // prov
-  myCap = new Capture(this, width, height, camFrameRate);
-  myCap.start();     
+  capture = new Capture(this, width, height, camFrameRate);
+  capture.start();     
 }
 
 void setup() {
@@ -123,8 +123,6 @@ void setup() {
   smooth();
   colorMode(HSB,1.0);
   
-  //myCap = new Capture(this,width,height,5);
-  //println("myCap: " + myCap);
   camBri = new float[width*height];
   
   noStroke();  ellipseMode(CENTER);
@@ -137,7 +135,7 @@ void setup() {
   }
   lastmillis=millis();
   
-  captureEvent(myCap);
+  captureEvent(capture);
 }
 
 void draw() {
@@ -145,8 +143,8 @@ void draw() {
   background(0,0,.6);
   
   // capture camera on every 10th frame
-  if (frameCount % 10 == 0 && myCap.available()) {
-    captureEvent(myCap);
+  if (frameCount % 10 == 0 && capture.available()) {
+    captureEvent(capture);
   }
   
   // update & draw tadpoles
@@ -162,7 +160,7 @@ void draw() {
   }
   if (showCapture) {
     tint(0,0,1,(float)mouseX/width);
-    image(bg,0,0);
+    image(capAsImage,0,0);
   }
 
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
@@ -175,12 +173,12 @@ void draw() {
   }
 }
 
-void captureEvent (Capture myCap) { // Is this actually in use or dead code?
-  myCap.read();
-  bg = myCap;
+void captureEvent (Capture capture) {
+  capture.read();
+  capAsImage = capture;
   for (ii=0;ii<width;ii++) {
    for (jj=0;jj<height;jj++) {
-    camBri[jj*width + ii] = brightness(bg.get(ii,jj)); // we put the pixel-by-pixel brightness into a separate array for efficiency.
+    camBri[jj*width + ii] = brightness(capture.get(ii,jj)); // we put the pixel-by-pixel brightness into a separate array for efficiency.
    }
   }
 }
@@ -226,11 +224,11 @@ class Tad {
         int x = (int)position.x;
         int y = (int)position.y;
 
-        curPixel = bg.get(x, y); 
+        curPixel = capAsImage.get(x, y); 
         if (abs (bri - brightness(curPixel)) < .1) return destination; // optional: save some time by skipping ones that are 'good enough'
         for (int j = max(0, x - vision); j < min(width, x + vision + 1 ); j++) {
             for (int k = max(0, y - vision); k < min(height, y + vision+1 ); k++) {
-                testBri = camBri[k*width+j]; // using camBri rather than bg.get() is much more efficient
+                testBri = camBri[k*width+j]; // using camBri rather than capAsImage.get() is much more efficient
                 newDif = abs(bri-testBri);
                 if (newDif < curDif) {
                     curDif = newDif;
