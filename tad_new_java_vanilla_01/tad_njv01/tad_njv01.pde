@@ -61,7 +61,7 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 
 // constants //
 final static int NUMTADS = 10000;
-
+final static boolean skipGoodEnough = true;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
 final static int xRad = 4, yRad = 6; // size of circle
@@ -150,15 +150,12 @@ void draw() {
   // update & draw tadpoles
   for(i=0;i<NUMTADS;i++) {
     t = tads[i];
-    
     t.update();
-    
-    fill(0,0,t.bri,.6);
-    Point pos = t.position;
-    ellipse(pos.x, pos.y, xRad, yRad);
+    t.draw();
     
   }
   if (showCapture) {
+    // Overlay actual image if mouse clicked
     tint(0,0,1,(float)mouseX/width);
     image(capAsImage,0,0);
   }
@@ -185,7 +182,7 @@ void captureEvent (Capture capture) {
 
 class Point {
     // Holds only state.
-    public final float x, y;
+    public float x, y;
     public Point(float x, float y) {
         this.x = x;
         this.y = y;
@@ -201,18 +198,35 @@ class Point {
     }
 }
 
-class Vector extends Point {} // Same behavior but conceptually different
+class Vector extends Point {
+    /** Functionally identical to Point, but conceptually
+    different. **/
+    public Vector(float x, float y) {
+        super(x, y);
+    }
+
+    public Vector(int x, int y) {
+        super(x, y);
+    }
+    public Vector() {
+        // default to 0
+        super();
+    }
+}
 
 class Tad {
-    public float xv,yv,xa,ya,bri,xvDes,yvDes,xaDes,yaDes,age;
+    public float bri, age;
+    public Point position, destination;
+    public Vector velocity, acceleration;
+    public color col;
     float testBri,curDif,newDif;
-    Point position, destination;
-    color col;
-    int offset;
     int curPixel;
+
     Tad (float tadpoleBrightness, int initialX, int initialY) {
       position = new Point(initialX, initialY);
-      xv = yv = xa = ya = age = xvDes = yvDes = 0;
+      velocity = new Vector();
+      acceleration = new Vector();
+      age = 0;
       bri = tadpoleBrightness;
     }
   
@@ -225,7 +239,9 @@ class Tad {
         int y = (int)position.y;
 
         curPixel = capAsImage.get(x, y); 
-        if (abs (bri - brightness(curPixel)) < .1) return destination; // optional: save some time by skipping ones that are 'good enough'
+        if (skipGoodEnough && abs (bri - brightness(curPixel)) < .1) {
+            return destination; // optional: save some time by skipping ones that are 'good enough'
+        }
         for (int j = max(0, x - vision); j < min(width, x + vision + 1 ); j++) {
             for (int k = max(0, y - vision); k < min(height, y + vision+1 ); k++) {
                 testBri = camBri[k*width+j]; // using camBri rather than capAsImage.get() is much more efficient
@@ -245,17 +261,28 @@ class Tad {
         }
         age += 1;
     
-    // float distance = abs(xp-xpDes) + abs(yp-ypDes); // not Pythagorean, just a sum -- much faster but less accurate // TODO was not actually being used in prev version
-    xa = constrain((destination.x-position.x) / maxDist, AMIN, AMAX);
-    ya = constrain ((destination.y-position.y) / maxDist, AMIN, AMAX);
-    //println("xv: " + xv + "  xa: " + xa);
-    xv = constrain(.99 * (xv + xa), VMIN, VMAX);
-    yv = constrain(.99 * (yv + ya), VMIN, VMAX);
+    // TODO was not actually being used in prev version
+    // float distance = abs(xp-xpDes) + abs(yp-ypDes); // not Pythagorean, just a sum -- much faster but less accurate 
+
+    float xa = constrain((destination.x-position.x) / maxDist, AMIN, AMAX);
+    float ya = constrain ((destination.y-position.y) / maxDist, AMIN, AMAX);
+    float xv = constrain(.99 * (velocity.x + acceleration.x), VMIN, VMAX);
+    float yv = constrain(.99 * (velocity.y + acceleration.y), VMIN, VMAX);
+    acceleration = new Vector(xa, ya);
+    velocity = new Vector(xv, yv);
     //xv = (xpDes-xp) / distance; yv = (ypDes-yp) / distance;
     //xp = constrain(xp += xv,0,width); yp = constrain(yp += yv,0,height);
-    position = new Point(position.x + xv, position.y + yv);
+    position = new Point(position.x + velocity.x, position.y + velocity.y);
     
   }
+
+  void draw() {
+    fill(0,0,t.bri,.6);
+    Point pos = t.position;
+    ellipse(pos.x, pos.y, xRad, yRad);
+    //TODO draw tail
+  }
+
 }
 
 void mousePressed() {
