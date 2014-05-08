@@ -67,14 +67,14 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 30000;
+final static int NUMTADS = 10000;
 final static boolean skipGoodEnough = false;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
 final static int xRad = 4, yRad = 6; // size of circle
 
 // How far should tadpoles look around them when deciding which way to move?
-int vision = 2; // effectively a constant for now but may be implemented
+int vision = 5; // effectively a constant for now but may be implemented
                  // more extensively later. Note that for convenience this
                  // is not a true range but the x & y bounds of a box.
                  
@@ -106,7 +106,7 @@ void cameraCheck(String[] cameras) {
 
 void cameraSetup() {
   String[] cameras = Capture.list();
-  cameraCheck(cameras);
+  //cameraCheck(cameras); // List cameras
   // The camera can be initialized directly using an 
   // element from the array returned by list().
   // But me, I'm doing it by requesting a specific 
@@ -117,7 +117,8 @@ void cameraSetup() {
 }
 
 void setup() {
-  size(320, 256, P2D); // P2D?
+  //size(320, 256, P2D); // P2D seems to be faster, but causes a crash when I click to show camera
+  size(320, 256);
   cameraSetup();
   
   println("Number of cores: " + numCores);
