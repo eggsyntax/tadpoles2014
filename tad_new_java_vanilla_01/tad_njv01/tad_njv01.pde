@@ -267,7 +267,9 @@ class Tad {
 
     void update() {
       
-        // Look far around every now and then. Hmm, this'll get overridden, though.
+        // Look far around every now and then. Hmm, this'll get overridden when it
+        // goes to look around again, though. Unless I've set it up to not look again
+        // until current destination is reached.
         /*
         int curVision;
         if (frameCount % 100 == 1) {
