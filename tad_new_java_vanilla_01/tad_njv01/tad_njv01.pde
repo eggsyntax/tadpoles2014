@@ -43,6 +43,13 @@ So we could do the tadpole approach but cache results. But since cutting down ca
 How can I get greatest efficiency in reading from the camera? What exactly is a Capture anyway?
 
 Some ways to get substantially greater efficiency:
+    // TODO try commenting out the tadpole drawing, and show the screen cap; see what the cost-per-frame
+    // is. At 30k tadpoles, the draw cost for the tads is about 150 ms.
+    // Assuming this is pretty quick, I should start looking at a threading solution.
+    // Create a queue of captures to process. A thread grabs a cap from the queue, draws it
+    // to memory, and adds it to a queue of screens to show. The draw loop just swaps out the
+    // screen. This is maybe about the pixels[] array, and loadPixels() and updatePixels().
+
 1) Not all tadpoles move at once. They spend some idle time between moves. If I do this, I can let the individual
     tadpoles move faster.
 2) Not all pixels are updated for brightnesss every frame.
@@ -60,14 +67,14 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 10000;
-final static boolean skipGoodEnough = true;
+final static int NUMTADS = 30000;
+final static boolean skipGoodEnough = false;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
 final static int xRad = 4, yRad = 6; // size of circle
 
 // How far should tadpoles look around them when deciding which way to move?
-int vision = 5; // effectively a constant for now but may be implemented
+int vision = 2; // effectively a constant for now but may be implemented
                  // more extensively later. Note that for convenience this
                  // is not a true range but the x & y bounds of a box.
                  
@@ -110,14 +117,14 @@ void cameraSetup() {
 }
 
 void setup() {
-  size(320, 256, P2D);
+  size(320, 256, P2D); // P2D?
   cameraSetup();
   
   println("Number of cores: " + numCores);
   int xInitial,yInitial;
   float brightnessInitial;
   
-  frameRate(80);
+  frameRate(100);
   maxDist = sqrt(width*width + height*height); // What is the farthest one point can be from another?
   
   smooth();
@@ -152,20 +159,18 @@ void draw() {
     t = tads[i];
     t.update();
     t.draw();
-    
   }
+  
   if (showCapture) {
     // Overlay actual image if mouse clicked
-    tint(0,0,1,(float)mouseX/width);
-    image(capAsImage,0,0);
+    tint(0,0,1,(float)mouseX/width);    
+    image(capAsImage,0,0); // TODO why am I getting a crash on this?
   }
 
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
 
   // report performance statistics
-  // frameCount++; 
   if (frameCount%50==0) {
-  //   frameCount = 0;
     println ("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
   }
 }
@@ -230,11 +235,16 @@ class Tad {
       bri = tadpoleBrightness;
     }
   
-    public Point findDestination() { 
+    public Point findDestination(int vision) {
         // look around for a target pixel
-    
+        // TODO don't look around again until current destination reached.
         curDif = 5000; // arbitrarily large default
         destination = position; // Default destination = current position
+        
+        // Don't pick a new destination every frame
+        //if (frameCount % 20 == 0) {
+        //   return destination;
+        //} 
         int x = (int)position.x;
         int y = (int)position.y;
 
@@ -256,9 +266,20 @@ class Tad {
     }
 
     void update() {
-        if (frameCount % 10 == 1) {
-            destination = findDestination();
+      
+        // Look far around every now and then. Hmm, this'll get overridden, though.
+        /*
+        int curVision;
+        if (frameCount % 100 == 1) {
+          curVision = 200;
+        } else {
+          curVision = vision;
         }
+        */
+        // Only makes about 2 ms difference.
+        //if (frameCount % 100 == 1) {
+            destination = findDestination(vision);
+        //}
         age += 1;
     
     // TODO was not actually being used in prev version
