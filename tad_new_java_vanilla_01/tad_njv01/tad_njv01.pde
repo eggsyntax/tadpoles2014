@@ -1,4 +1,5 @@
 import processing.video.Capture;
+import java.util.HashSet;
 
 // Currently just trying to get this to work again after some years of neglect.
 // Seem to have it to the point now of producing tadpoles and displaying them.
@@ -50,6 +51,21 @@ Some ways to get substantially greater efficiency:
     // to memory, and adds it to a queue of screens to show. The draw loop just swaps out the
     // screen. This is maybe about the pixels[] array, and loadPixels() and updatePixels().
 
+How to do threading:
+    * screen capture writes to an image and adds that image to the capture queue
+        if capture.available() {
+          capture.read();
+          capAsImage = capture;
+          capture_queue.add((PImage)capture); // probably have to copy
+        }
+
+    * writeTadpoles() pops from the capture array, uses that info to draw all
+    the tadpoles to a PGraphics object, and puts it in the display queue.
+
+    * draw() method pulls from the display queue and draws that PGraphics object to the screen.
+
+    Maybe make a pool of PGraphics objects.
+
 1) Not all tadpoles move at once. They spend some idle time between moves. If I do this, I can let the individual
     tadpoles move faster.
 2) Not all pixels are updated for brightnesss every frame.
@@ -88,6 +104,7 @@ PImage capAsImage;
 Capture capture;
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
+HashSet<PGraphics> pgPool = new HashSet(10);
 float time,avetime,lastmillis;
 int numCores = Runtime.getRuntime().availableProcessors();
 
@@ -116,6 +133,13 @@ void cameraSetup() {
   capture.start();     
 }
 
+void populatePgPool() {
+  /** Creates a pool of PGraphics objects for threads to draw from. **/
+  for (int i=0; i<pgPool.size(); i++) {
+      println(i);
+  }
+}
+
 void setup() {
   //size(320, 256, P2D); // P2D seems to be faster, but causes a crash when I click to show camera
   size(320, 256);
@@ -127,6 +151,7 @@ void setup() {
   
   frameRate(100);
   maxDist = sqrt(width*width + height*height); // What is the farthest one point can be from another?
+  populatePgPool();
   
   smooth();
   colorMode(HSB,1.0);
