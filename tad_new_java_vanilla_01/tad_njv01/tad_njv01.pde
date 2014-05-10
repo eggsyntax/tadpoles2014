@@ -89,7 +89,7 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 30000;
+final static int NUMTADS = 10000;
 final static boolean skipGoodEnough = false;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
@@ -106,8 +106,7 @@ float maxDist;
 boolean showCapture = false;
 Tad t;
 Tad[] tads = new Tad[NUMTADS];
-PImage capAsImage;
-Capture capture;
+Capture capture; // subclass of PImage
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
 float time,avetime,lastmillis;
@@ -138,7 +137,6 @@ void cameraSetup() {
   // element from the array returned by list().
   // But me, I'm doing it by requesting a specific 
   // width/height/framerate based on what I see in the list
-  // prov
   capture = new Capture(this, width, height, camFrameRate);
   capture.start();     
 }
@@ -229,7 +227,7 @@ void draw() {
   if (showCapture) {
     // Overlay actual image if mouse clicked
     tint(0,0,1,(float)mouseX/width);    
-    image(capAsImage,0,0); // TODO why am I getting a crash on this?
+    image(capture,0,0); // TODO why am I getting a crash on this?
   }
 
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
@@ -242,7 +240,6 @@ void draw() {
 
 void captureEvent (Capture capture) {
   capture.read();
-  capAsImage = capture;
   for (ii=0;ii<width;ii++) {
    for (jj=0;jj<height;jj++) {
     camBri[jj*width + ii] = brightness(capture.get(ii,jj)); // we put the pixel-by-pixel brightness into a separate array for efficiency.
@@ -313,13 +310,13 @@ class Tad {
         int x = (int)position.x;
         int y = (int)position.y;
 
-        curPixel = capAsImage.get(x, y); 
+        curPixel = capture.get(x, y); 
         if (skipGoodEnough && abs (bri - brightness(curPixel)) < .1) {
             return destination; // optional: save some time by skipping ones that are 'good enough'
         }
         for (int j = max(0, x - vision); j < min(width, x + vision + 1 ); j++) {
             for (int k = max(0, y - vision); k < min(height, y + vision+1 ); k++) {
-                testBri = camBri[k*width+j]; // using camBri rather than capAsImage.get() is much more efficient
+                testBri = camBri[k*width+j]; // using camBri rather than capture.get() is much more efficient
                 newDif = abs(bri-testBri);
                 if (newDif < curDif) {
                     curDif = newDif;
