@@ -56,7 +56,6 @@ How to do threading:
     * screen capture writes to an image and adds that image to the capture queue
         if capture.available() {
           capture.read();
-          capAsImage = capture;
           capture_queue.add((PImage)capture); // probably have to copy
         }
 
@@ -66,6 +65,12 @@ How to do threading:
     * draw() method pulls from the display queue and draws that PGraphics object to the screen.
 
     Maybe make a pool of PGraphics objects.
+
+Issue:
+    How can a worker know where tadpoles will be when it's time for the screencap they're working on?
+    Do I need to pass a copy of all tadpoles to each thread?
+    Hmm.
+    Maybe I need to make the tadpoles functional/side-effect free? Hmm.
 
 1) Not all tadpoles move at once. They spend some idle time between moves. If I do this, I can let the individual
     tadpoles move faster.
@@ -105,11 +110,14 @@ PImage capAsImage;
 Capture capture;
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
-int PG_POOL_SIZE = 10;
-PgPool pgPool;
 float time,avetime,lastmillis;
 int numCores = Runtime.getRuntime().availableProcessors();
 
+// Threading support
+int PG_POOL_SIZE = 10;
+PgPool pgPool;
+LinkedList<Capture> captureQueue = new LinkedList();
+LinkedList<PGraphics> displayQueue = new LinkedList();
 
 void cameraCheck(String[] cameras) {
   if (cameras.length == 0) {
@@ -155,6 +163,22 @@ class PgPool {
   }
 }
 
+class Worker extends Thread {
+  /** Looks for a capture, and if one is available, processes it
+   *  and adds the resulting screen to the display queue.
+   **/
+
+  Worker() {
+
+  }
+
+  // Overriding "start()"
+  void start () {}
+
+  // Run method
+  void run() {}
+
+}
 
 void setup() {
   size(320, 256, P2D); // P2D?
