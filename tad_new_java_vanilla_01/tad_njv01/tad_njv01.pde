@@ -1,9 +1,7 @@
 import processing.video.Capture;
 import java.util.LinkedList;
 import java.util.ArrayDeque;
-
-// Currently just trying to get this to work again after some years of neglect.
-// Seem to have it to the point now of producing tadpoles and displaying them.
+import processing.core.PGraphics;
 
 //Change to make -- at least smooth things out a bit by only processing some tads in each frame...
 //Optimization -- more sophisticated index into pixels[] in inner loop; replace get() with more efficient code
@@ -71,6 +69,10 @@ Issue:
     Do I need to pass a copy of all tadpoles to each thread?
     Hmm.
     Maybe I need to make the tadpoles functional/side-effect free? Hmm.
+    Yes. Tadpoles are immutable. update() returns a new tadpole. The current list of tadpoles is stored in 
+    a queue, and worker threads pull from that queue to draw them, returning a PGraphics object. Meanwhile
+    the "current" list becomes the list of new tadpoles. Costs memory (10,000 tadpoles for each frame
+    sitting in the queue and waiting to be drawn).
 
 1) Not all tadpoles move at once. They spend some idle time between moves. If I do this, I can let the individual
     tadpoles move faster.
@@ -89,7 +91,7 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 10000;
+final static int NUMTADS = 3000;
 final static boolean skipGoodEnough = false;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
@@ -106,6 +108,7 @@ float maxDist;
 boolean showCapture = false;
 Tad t;
 Tad[] tads = new Tad[NUMTADS];
+Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
 Capture capture; // subclass of PImage
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
@@ -114,6 +117,7 @@ int numCores = Runtime.getRuntime().availableProcessors();
 
 // Threading support
 int PG_POOL_SIZE = 10;
+int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
 LinkedList<Capture> captureQueue = new LinkedList();
 LinkedList<PGraphics> displayQueue = new LinkedList();
@@ -141,13 +145,28 @@ void cameraSetup() {
   capture.start();     
 }
 
+void saveCapture() {
+  /** Save a copy of the current capture to the capture queue **/
+  if (!capture.available()) return;
+  // TODO
+
+}
+
 class PgPool {
+  /** Pool of PGraphics objects **/
   ArrayDeque<PGraphics> pgPool;
 
   public PgPool(int size) {
     pgPool = new ArrayDeque(size);
     for (int i=0; i<PG_POOL_SIZE; i++) {
         PGraphics pg = createGraphics(width, height);
+        pg.beginDraw();
+        pg.smooth();
+        pg.colorMode(HSB,1.0);
+        pg.noStroke();
+        pg.ellipseMode(CENTER);
+        pg.endDraw();
+
         pgPool.push(pg);
     }
   }
@@ -161,10 +180,44 @@ class PgPool {
   }
 }
 
+class ImagePool {
+  /** Pool of PImage objects **/
+  ArrayDeque<PImage> imagePool;
+
+  public ImagePool(int size) {
+    imagePool = new ArrayDeque(size);
+    for (int i=0; i<IMAGE_POOL_SIZE; i++) {
+        PImage im = createImage(width, height, RGB);
+        imagePool.push(im);
+    }
+  }
+
+  public PImage get() {
+    return imagePool.pop();
+  }
+
+  public void release(PImage im) {
+    imagePool.push(im);
+  }
+}
+
 class Worker extends Thread {
-  /** Looks for a capture, and if one is available, processes it
-   *  and adds the resulting screen to the display queue.
+  /** Looks for something to do and does it. Either processes a
+   *  capture and puts it in the capture queue or pulls a capture
+   *  out of the queue and draws an image.
+   *
+   *  1. If there's a capture available, read it and update the
+   *    camBri array.
+   *  2. If the tadpole-state queue is short, grab the first member
+   *    of it and update all the tadpoles using the camBri array,
+   *    prepending the result to the tadpole-state queue.
+   *  3. If the PGraphics queue is short, pop the last member of the
+   *    tadpole-state queue and use it to draw to a PGraphics object
+   *    from the pool, prepending the result to the PGraphics queue.
+   *  4. Otherwise take a nice nap.
+   *
    **/
+  // TODO implement
 
   Worker() {
 
@@ -192,10 +245,11 @@ void setup() {
   
   smooth();
   colorMode(HSB,1.0);
-  
+  //println("Base colorMode: " + self.colorMode);
   camBri = new float[width*height];
   
-  noStroke();  ellipseMode(CENTER);
+  noStroke();
+  ellipseMode(CENTER);
   
   for (i=0;i<NUMTADS;i++) {
     brightnessInitial = random(1.0);
@@ -208,27 +262,36 @@ void setup() {
   captureEvent(capture);
 }
 
+
 void draw() {
-  
-  background(0,0,.6);
   
   // capture camera on every 10th frame
   if (frameCount % 10 == 0 && capture.available()) {
     captureEvent(capture);
   }
+
+  PGraphics nextScreen = pgPool.get();
+  nextScreen.beginDraw();
+  //println("Color mode: " + str(nextScreen.colorMode) + "; Max bri: " + str(nextScreen.colorModeZ));
+  nextScreen.background(0, 0, 0.7);
   
   // update & draw tadpoles
   for(i=0;i<NUMTADS;i++) {
     t = tads[i];
     t.update();
-    t.draw();
+    t.draw(nextScreen);
   }
-  
+
+  nextScreen.endDraw();
+  image(nextScreen, 0, 0);
+
   if (showCapture) {
     // Overlay actual image if mouse clicked
     tint(0,0,1,(float)mouseX/width);    
     image(capture,0,0); // TODO why am I getting a crash on this?
   }
+
+  pgPool.release(nextScreen);
 
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
 
@@ -361,10 +424,12 @@ class Tad {
     
   }
 
-  void draw() {
-    fill(0,0,t.bri,.6);
+  void draw(PGraphics pg) {
+    // Note that beginDraw() and endDraw() happen outside this function
+    //pg.colorMode(HSB, 1.0);
+    pg.fill(0,0,t.bri,.6);
     Point pos = t.position;
-    ellipse(pos.x, pos.y, xRad, yRad);
+    pg.ellipse(pos.x, pos.y, xRad, yRad);
     //TODO draw tail
   }
 
