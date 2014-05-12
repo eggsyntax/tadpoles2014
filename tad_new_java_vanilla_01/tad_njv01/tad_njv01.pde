@@ -91,8 +91,8 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 10000;
-final static boolean skipGoodEnough = false;
+final static int NUMTADS = 15000;
+final static boolean skipGoodEnough = true;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
 final static int xRad = 4, yRad = 6; // size of circle
@@ -117,6 +117,7 @@ int numCores = Runtime.getRuntime().availableProcessors();
 final int PG_POOL_SIZE = 10;
 final int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
+boolean updateLocked = false;
 LinkedList<Tad[]> tadpoleStateQueue = new LinkedList();
 LinkedList<PGraphics> displayQueue = new LinkedList();
 
@@ -266,6 +267,8 @@ void setup() {
 
 void updateTadpoles() {
   // update tadpoles
+  if (updateLocked) return; // Most current state is being worked on by another thread
+  updateLocked = true;
   Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
 
   // We always base the next tadpole state on the most current one we have
@@ -280,6 +283,7 @@ void updateTadpoles() {
   // We've got representations of all next-positions for tadpoles. Add to the queue of 
   // tadpole states waiting to be drawn
   tadpoleStateQueue.add(newtads);
+  updateLocked = false;
 }
 
 void drawTadpoles(Tad[] tadpoles) {
