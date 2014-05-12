@@ -98,7 +98,7 @@ float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each
 final static int xRad = 4, yRad = 6; // size of circle
 
 // How far should tadpoles look around them when deciding which way to move?
-int vision = 2; // effectively a constant for now but may be implemented
+int vision = 5; // effectively a constant for now but may be implemented
                  // more extensively later. Note that for convenience this
                  // is not a true range but the x & y bounds of a box.
                  
@@ -255,7 +255,7 @@ void setup() {
     brightnessInitial = random(1.0);
     xInitial = (int)random(width);
     yInitial = (int)random(height);
-    tads[i] = new Tad(brightnessInitial,xInitial,yInitial);
+    tads[i] = new Tad(brightnessInitial, new Point(xInitial,yInitial));
   }
   lastmillis=millis();
   
@@ -348,18 +348,21 @@ class Tad {
     public float bri, age;
     public Point position, destination;
     public Vector velocity, acceleration;
-    public color col;
     float testBri,curDif,newDif;
     int curPixel;
 
-    Tad (float tadpoleBrightness, int initialX, int initialY) {
-      position = new Point(initialX, initialY);
-      velocity = new Vector();
-      acceleration = new Vector();
+    Tad (float tadpoleBrightness, Point position) {
+      this(tadpoleBrightness, position, new Vector(), new Vector());
+    }
+  
+    Tad (float tadpoleBrightness, Point position, Vector velocity, Vector acceleration) {
+      this.position = position;
+      this.velocity = velocity;
+      this.acceleration = acceleration;
       age = 0;
       bri = tadpoleBrightness;
     }
-  
+
     public Point findDestination(int vision) {
         // look around for a target pixel
         // TODO don't look around again until current destination reached.
