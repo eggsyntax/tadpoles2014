@@ -91,7 +91,7 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 3000;
+final static int NUMTADS = 10000;
 final static boolean skipGoodEnough = false;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
@@ -107,8 +107,6 @@ int i,j,ii,jj; // Counters, defining at top level for greatest efficiency (maybe
 float maxDist;
 boolean showCapture = false;
 Tad t;
-Tad[] tads = new Tad[NUMTADS];
-Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
 Capture capture; // subclass of PImage
 int camFrameRate = 1;
 float[] camBri; // brightness values of each pixel of the camera capture
@@ -116,10 +114,10 @@ float time,avetime,lastmillis;
 int numCores = Runtime.getRuntime().availableProcessors();
 
 // Threading support
-int PG_POOL_SIZE = 10;
-int IMAGE_POOL_SIZE = 10;
+final int PG_POOL_SIZE = 10;
+final int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
-LinkedList<Capture> captureQueue = new LinkedList();
+LinkedList<Tad[]> tadpoleStateQueue = new LinkedList();
 LinkedList<PGraphics> displayQueue = new LinkedList();
 
 void cameraCheck(String[] cameras) {
@@ -210,10 +208,10 @@ class Worker extends Thread {
    *    camBri array.
    *  2. If the tadpole-state queue is short, grab the first member
    *    of it and update all the tadpoles using the camBri array,
-   *    prepending the result to the tadpole-state queue.
-   *  3. If the PGraphics queue is short, pop the last member of the
+   *    appending the result to the tadpole-state queue.
+   *  3. If the PGraphics queue is short, pop the first member of the
    *    tadpole-state queue and use it to draw to a PGraphics object
-   *    from the pool, prepending the result to the PGraphics queue.
+   *    from the pool, appending the result to the PGraphics queue.
    *  4. Otherwise take a nice nap.
    *
    **/
@@ -251,17 +249,51 @@ void setup() {
   noStroke();
   ellipseMode(CENTER);
   
+  Tad[] tads = new Tad[NUMTADS];
   for (i=0;i<NUMTADS;i++) {
     brightnessInitial = random(1.0);
     xInitial = (int)random(width);
     yInitial = (int)random(height);
     tads[i] = new Tad(brightnessInitial, new Point(xInitial,yInitial));
   }
+  // push our freshly born tadpoles into the tadpoleStateQueue
+  tadpoleStateQueue.add(tads);
+
   lastmillis=millis();
   
   captureEvent(capture);
 }
 
+void updateTadpoles() {
+  // update tadpoles
+  Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
+
+  // We always base the next tadpole state on the most current one we have
+  Tad[] currentTadpoles = tadpoleStateQueue.peek();
+
+  for(i=0;i<NUMTADS;i++) {
+    t = currentTadpoles[i];
+    Tad newtad = t.update();
+    newtads[i] = newtad;
+  }
+
+  // We've got representations of all next-positions for tadpoles. Add to the queue of 
+  // tadpole states waiting to be drawn
+  tadpoleStateQueue.add(newtads);
+}
+
+void drawTadpoles(Tad[] tadpoles) {
+  PGraphics nextScreen = pgPool.get();
+  nextScreen.beginDraw();
+  nextScreen.background(0, 0, 0.7);
+  for(i=0;i<NUMTADS;i++) {
+    t = tadpoles[i];
+    t.draw(nextScreen);
+  }
+  nextScreen.endDraw();
+
+  displayQueue.add(nextScreen);
+}
 
 void draw() {
   
@@ -270,19 +302,13 @@ void draw() {
     captureEvent(capture);
   }
 
-  PGraphics nextScreen = pgPool.get();
-  nextScreen.beginDraw();
-  //println("Color mode: " + str(nextScreen.colorMode) + "; Max bri: " + str(nextScreen.colorModeZ));
-  nextScreen.background(0, 0, 0.7);
   
-  // update & draw tadpoles
-  for(i=0;i<NUMTADS;i++) {
-    t = tads[i];
-    t.update();
-    t.draw(nextScreen);
-  }
 
-  nextScreen.endDraw();
+  // These next two calls will actually end up being in Worker, not in the main draw().
+  updateTadpoles();
+  drawTadpoles(tadpoleStateQueue.remove());
+
+  PGraphics nextScreen = displayQueue.remove();
   image(nextScreen, 0, 0);
 
   if (showCapture) {
@@ -345,22 +371,23 @@ class Vector extends Point {
 }
 
 class Tad {
-    public float bri, age;
+    public float bri;
+    public int age;
     public Point position, destination;
     public Vector velocity, acceleration;
     float testBri,curDif,newDif;
     int curPixel;
 
-    Tad (float tadpoleBrightness, Point position) {
-      this(tadpoleBrightness, position, new Vector(), new Vector());
+    Tad(float tadpoleBrightness, Point position) {
+      this(tadpoleBrightness, position, new Vector(), new Vector(), 0);
     }
   
-    Tad (float tadpoleBrightness, Point position, Vector velocity, Vector acceleration) {
+    Tad(float tadpoleBrightness, Point position, Vector velocity, Vector acceleration, int age) {
       this.position = position;
       this.velocity = velocity;
       this.acceleration = acceleration;
-      age = 0;
-      bri = tadpoleBrightness;
+      this.age = age;
+      this.bri = tadpoleBrightness;
     }
 
     public Point findDestination(int vision) {
@@ -393,7 +420,7 @@ class Tad {
         return destination;
     }
 
-    void update() {
+    Tad update() {
       
         // Look far around every now and then. Hmm, this'll get overridden when it
         // goes to look around again, though. Unless I've set it up to not look again
@@ -410,7 +437,6 @@ class Tad {
         //if (frameCount % 100 == 1) {
             destination = findDestination(vision);
         //}
-        age += 1;
     
     // TODO was not actually being used in prev version
     // float distance = abs(xp-xpDes) + abs(yp-ypDes); // not Pythagorean, just a sum -- much faster but less accurate 
@@ -425,6 +451,7 @@ class Tad {
     //xp = constrain(xp += xv,0,width); yp = constrain(yp += yv,0,height);
     position = new Point(position.x + velocity.x, position.y + velocity.y);
     
+    return new Tad(bri, position, velocity, acceleration, age + 1);
   }
 
   void draw(PGraphics pg) {
