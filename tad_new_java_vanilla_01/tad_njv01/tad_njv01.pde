@@ -1,6 +1,5 @@
 import processing.video.Capture;
-import java.util.LinkedList;
-import java.util.ArrayDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import processing.core.PGraphics;
 
 //Change to make -- at least smooth things out a bit by only processing some tads in each frame...
@@ -91,7 +90,7 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 15000;
+final static int NUMTADS = 10000;
 final static boolean skipGoodEnough = true;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
@@ -102,8 +101,6 @@ int vision = 5; // effectively a constant for now but may be implemented
                  // more extensively later. Note that for convenience this
                  // is not a true range but the x & y bounds of a box.
                  
-int i,j,ii,jj; // Counters, defining at top level for greatest efficiency (maybe overkill ;) )
-
 float maxDist;
 boolean showCapture = false;
 Tad t;
@@ -117,9 +114,11 @@ int numCores = Runtime.getRuntime().availableProcessors();
 final int PG_POOL_SIZE = 10;
 final int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
-boolean updateLocked = false;
-LinkedList<Tad[]> tadpoleStateQueue = new LinkedList();
-LinkedList<PGraphics> displayQueue = new LinkedList();
+LinkedBlockingDeque<Tad[]> tadpoleStateQueue = new LinkedBlockingDeque();
+LinkedBlockingDeque<PGraphics> displayQueue = new LinkedBlockingDeque();
+//boolean updateLocked = false;
+//boolean drawLocked = false;
+boolean currentTadpolesBeingUpdated = false;
 
 void cameraCheck(String[] cameras) {
   if (cameras.length == 0) {
@@ -144,19 +143,13 @@ void cameraSetup() {
   capture.start();     
 }
 
-void saveCapture() {
-  /** Save a copy of the current capture to the capture queue **/
-  if (!capture.available()) return;
-  // TODO
-
-}
 
 class PgPool {
   /** Pool of PGraphics objects **/
-  ArrayDeque<PGraphics> pgPool;
+  LinkedBlockingDeque<PGraphics> pgPool;
 
   public PgPool(int size) {
-    pgPool = new ArrayDeque(size);
+    pgPool = new LinkedBlockingDeque(size);
     for (int i=0; i<PG_POOL_SIZE; i++) {
         PGraphics pg = createGraphics(width, height);
         pg.beginDraw();
@@ -165,38 +158,25 @@ class PgPool {
         pg.noStroke();
         pg.ellipseMode(CENTER);
         pg.endDraw();
-
-        pgPool.push(pg);
+        _put(pg);
     }
   }
 
+  void _put(PGraphics p) {
+    // Internal method for putting
+    try {
+      pgPool.putLast(p);
+    }
+    catch (InterruptedException e) {
+      println("pgPool putting interrupted, argh!");
+    }
+  }
   public PGraphics get() {
-    return pgPool.pop();
+    return pgPool.pollFirst();
   }
 
   public void release(PGraphics pg) {
-    pgPool.push(pg);
-  }
-}
-
-class ImagePool {
-  /** Pool of PImage objects **/
-  ArrayDeque<PImage> imagePool;
-
-  public ImagePool(int size) {
-    imagePool = new ArrayDeque(size);
-    for (int i=0; i<IMAGE_POOL_SIZE; i++) {
-        PImage im = createImage(width, height, RGB);
-        imagePool.push(im);
-    }
-  }
-
-  public PImage get() {
-    return imagePool.pop();
-  }
-
-  public void release(PImage im) {
-    imagePool.push(im);
+    _put(pg);
   }
 }
 
@@ -216,18 +196,51 @@ class Worker extends Thread {
    *  4. Otherwise take a nice nap.
    *
    **/
-  // TODO implement
 
   Worker() {
 
   }
 
   // Overriding "start()"
-  void start () {}
+  void start () {
+    super.start();
+  }
 
   // Run method
-  void run() {}
+  void run() {
+    while (true) {
+      // Perform triage on what needs doing
+      if (capture.available()) {
+        println("Let's capture!");
+        captureEvent(capture);
+      }
 
+      if (tadpoleStateQueue.size() < 100 && !currentTadpolesBeingUpdated) {
+          println("Let's update!");
+          currentTadpolesBeingUpdated = true;
+          Tad[] currentTadpoles = tadpoleStateQueue.peekFirst();
+          if (currentTadpoles != null) updateTadpoles(currentTadpoles);
+          currentTadpolesBeingUpdated = false;
+
+      } else {
+        println("Let's draw!");
+        Tad[] tadsToDraw = tadpoleStateQueue.pollFirst();
+        if (tadsToDraw != null) {
+          drawTadpoles(tadsToDraw);
+        } else {
+          println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
+          try {
+            sleep(100); // in ms
+          }
+          catch (InterruptedException e) {
+            println("You interrupted my damn nap.");
+            exit();
+          }
+        }
+      }
+    }
+  }
+  // TODO possibly implement quit() method
 }
 
 void setup() {
@@ -251,30 +264,33 @@ void setup() {
   ellipseMode(CENTER);
   
   Tad[] tads = new Tad[NUMTADS];
-  for (i=0;i<NUMTADS;i++) {
+  for (int i=0;i<NUMTADS;i++) {
     brightnessInitial = random(1.0);
     xInitial = (int)random(width);
     yInitial = (int)random(height);
     tads[i] = new Tad(brightnessInitial, new Point(xInitial,yInitial));
   }
-  // push our freshly born tadpoles into the tadpoleStateQueue
+  // push our newborn tadpoles into the tadpoleStateQueue
   tadpoleStateQueue.add(tads);
 
   lastmillis=millis();
   
   captureEvent(capture);
-}
 
-void updateTadpoles() {
-  // update tadpoles
-  if (updateLocked) return; // Most current state is being worked on by another thread
-  updateLocked = true;
+  // And finally, create some Workers to do all the work
+  Worker worker_1 = new Worker();
+  Worker worker_2 = new Worker();
+  worker_1.start();
+  worker_2.start();
+}
+void updateTadpoles(Tad[] currentTadpoles) {
+  println("Update based on Tad[] " + currentTadpoles);
+  //println("updating. stateQueue length: " + tadpoleStateQueue.size());
   Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
 
   // We always base the next tadpole state on the most current one we have
-  Tad[] currentTadpoles = tadpoleStateQueue.peek();
 
-  for(i=0;i<NUMTADS;i++) {
+  for(int i=0;i<NUMTADS;i++) {
     t = currentTadpoles[i];
     Tad newtad = t.update();
     newtads[i] = newtad;
@@ -283,37 +299,49 @@ void updateTadpoles() {
   // We've got representations of all next-positions for tadpoles. Add to the queue of 
   // tadpole states waiting to be drawn
   tadpoleStateQueue.add(newtads);
-  updateLocked = false;
 }
 
 void drawTadpoles(Tad[] tadpoles) {
+  println("Attempting to draw.");
+  /*
+  try {
+      println("length: " + tadpoles.length);
+  } catch (NullPointerException npe) {
+      println("NPE! " + tadpoles);
+      return;
+  }
+  if (drawLocked) {
+    println("drawlocked. Returning. Length of draw queue: " + displayQueue.size());
+    return;
+  }
+  println("drawing.");
+  drawLocked = true; // TODO look into locking options
+  */
   PGraphics nextScreen = pgPool.get();
   nextScreen.beginDraw();
   nextScreen.background(0, 0, 0.7);
-  for(i=0;i<NUMTADS;i++) {
+  for(int i=0;i<NUMTADS;i++) {
     t = tadpoles[i];
     t.draw(nextScreen);
   }
   nextScreen.endDraw();
 
   displayQueue.add(nextScreen);
+  pgPool.release(nextScreen);
 }
 
 void draw() {
   
-  // capture camera on every 10th frame
-  if (frameCount % 10 == 0 && capture.available()) {
-    captureEvent(capture);
+  // These next three calls will actually end up being in Worker, not in the main draw().
+  //captureEvent(capture);
+  //updateTadpoles();
+  //drawTadpoles(tadpoleStateQueue.remove());
+
+  if (displayQueue.size() == 0) return;
+  PGraphics nextScreen = displayQueue.pollFirst();
+  if (nextScreen != null) {
+    image(nextScreen, 0, 0);
   }
-
-  
-
-  // These next two calls will actually end up being in Worker, not in the main draw().
-  updateTadpoles();
-  drawTadpoles(tadpoleStateQueue.remove());
-
-  PGraphics nextScreen = displayQueue.remove();
-  image(nextScreen, 0, 0);
 
   if (showCapture) {
     // Overlay actual image if mouse clicked
@@ -321,20 +349,21 @@ void draw() {
     image(capture,0,0); // TODO why am I getting a crash on this?
   }
 
-  pgPool.release(nextScreen);
 
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
 
   // report performance statistics
+  println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
   if (frameCount%50==0) {
-    println ("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
+    println("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
   }
 }
 
 void captureEvent (Capture capture) {
+  if (!capture.available()) return;
   capture.read();
-  for (ii=0;ii<width;ii++) {
-   for (jj=0;jj<height;jj++) {
+  for (int ii=0;ii<width;ii++) {
+   for (int jj=0;jj<height;jj++) {
     camBri[jj*width + ii] = brightness(capture.get(ii,jj)); // we put the pixel-by-pixel brightness into a separate array for efficiency.
    }
   }
@@ -380,7 +409,6 @@ class Tad {
     public Point position, destination;
     public Vector velocity, acceleration;
     float testBri,curDif,newDif;
-    int curPixel;
 
     Tad(float tadpoleBrightness, Point position) {
       this(tadpoleBrightness, position, new Vector(), new Vector(), 0);
@@ -406,9 +434,11 @@ class Tad {
         //} 
         int x = (int)position.x;
         int y = (int)position.y;
+        //println("x, y:" + x + ", " + y);
 
-        curPixel = capture.get(x, y); 
-        if (skipGoodEnough && abs (bri - brightness(curPixel)) < .1) {
+        float curBri = brightness(capture.get(x, y)); //TODO shouldn't this be camBri?!?!?! As below...
+        //float curBri = camBri[y*width+x];
+        if (skipGoodEnough && abs (bri - curBri) < .1) {
             return destination; // optional: save some time by skipping ones that are 'good enough'
         }
         for (int j = max(0, x - vision); j < min(width, x + vision + 1 ); j++) {
