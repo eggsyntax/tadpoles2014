@@ -116,6 +116,14 @@ final int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
 LinkedBlockingDeque<Tad[]> tadpoleStateQueue = new LinkedBlockingDeque();
 LinkedBlockingDeque<PGraphics> displayQueue = new LinkedBlockingDeque();
+
+// Two temporary deques and an int to track timestamps
+LinkedBlockingDeque<Integer> tadpoleStateTimestampQueue = new LinkedBlockingDeque();
+LinkedBlockingDeque<Integer> displayTimestampQueue = new LinkedBlockingDeque();
+LinkedBlockingDeque<Integer> tadpoleStateCaptureTimestampQueue = new LinkedBlockingDeque();
+LinkedBlockingDeque<Integer> displayCaptureTimestampQueue = new LinkedBlockingDeque();
+int lastTimestamp;
+
 //boolean updateLocked = false;
 //boolean drawLocked = false;
 boolean currentTadpolesBeingUpdated = false;
@@ -207,24 +215,34 @@ class Worker extends Thread {
   }
 
   // Run method
+  // TODO The problem at this point: threads take a variable time to complete, so 
+  // the display screens (maybe the tadpole states also) are being put in the queue
+  // out of order (by, eg, 65 ms). What to do about this? Maybe look at LinkedList options so they
+  // can more easily swap elements? Or some kind of map? But keying by millis()
+  // won't work well because only a small percentage of them will appear. Hmm.
+  // I could actually probably append them the minute I get them, since they're mutable. Although
+  // not guaranteed, and (maybe?) doesn't solve the problem
+  //
   void run() {
     while (true) {
       // Perform triage on what needs doing
       if (capture.available()) {
-        println("Let's capture!");
+        //println("Let's capture!");
         captureEvent(capture);
       }
 
       if (tadpoleStateQueue.size() < 100 && !currentTadpolesBeingUpdated) {
-          println("Let's update!");
+          //println("Let's update!");
           currentTadpolesBeingUpdated = true;
           Tad[] currentTadpoles = tadpoleStateQueue.peekFirst();
-          if (currentTadpoles != null) updateTadpoles(currentTadpoles);
+          int currentTimestamp = tadpoleStateTimestampQueue.peekFirst();
+          if (currentTadpoles != null) updateTadpoles(currentTadpoles, currentTimestamp);
           currentTadpolesBeingUpdated = false;
 
       } else {
-        println("Let's draw!");
+        //println("Let's draw!");
         Tad[] tadsToDraw = tadpoleStateQueue.pollFirst();
+        int currentTimestamp = tadpoleStateTimestampQueue.pollFirst();
         if (tadsToDraw != null) {
           drawTadpoles(tadsToDraw);
         } else {
@@ -251,7 +269,7 @@ void setup() {
   int xInitial,yInitial;
   float brightnessInitial;
   
-  frameRate(100);
+  frameRate(10); // TODO put back up high
   maxDist = sqrt(width*width + height*height); // What is the farthest one point can be from another?
   pgPool = new PgPool(PG_POOL_SIZE);
   
@@ -272,6 +290,7 @@ void setup() {
   }
   // push our newborn tadpoles into the tadpoleStateQueue
   tadpoleStateQueue.add(tads);
+  tadpoleStateTimestampQueue.add((int)millis());
 
   lastmillis=millis();
   
@@ -283,8 +302,8 @@ void setup() {
   worker_1.start();
   worker_2.start();
 }
-void updateTadpoles(Tad[] currentTadpoles) {
-  println("Update based on Tad[] " + currentTadpoles);
+void updateTadpoles(Tad[] currentTadpoles, int timestamp) {
+  //println("Update based on Tad[] " + currentTadpoles);
   //println("updating. stateQueue length: " + tadpoleStateQueue.size());
   Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
 
@@ -299,6 +318,7 @@ void updateTadpoles(Tad[] currentTadpoles) {
   // We've got representations of all next-positions for tadpoles. Add to the queue of 
   // tadpole states waiting to be drawn
   tadpoleStateQueue.add(newtads);
+  tadpoleStateTimestampQueue.add((int)millis());
 }
 
 void drawTadpoles(Tad[] tadpoles) {
@@ -326,7 +346,13 @@ void drawTadpoles(Tad[] tadpoles) {
   }
   nextScreen.endDraw();
 
-  displayQueue.add(nextScreen);
+  try {
+    displayQueue.putLast(nextScreen);
+    displayTimestampQueue.putLast(millis());
+  }
+  catch (InterruptedException e) {
+    println("Interrupted while adding to display queue :(");
+  }
   pgPool.release(nextScreen);
 }
 
@@ -337,10 +363,14 @@ void draw() {
   //updateTadpoles();
   //drawTadpoles(tadpoleStateQueue.remove());
 
-  if (displayQueue.size() == 0) return;
+  if (displayQueue.size() == 0) return; //TODO should be able to delete this now that I'm using thread-safe queues
   PGraphics nextScreen = displayQueue.pollFirst();
+  int timestamp = displayTimestampQueue.pollFirst();
   if (nextScreen != null) {
     image(nextScreen, 0, 0);
+    int timeDiff = timestamp - lastTimestamp;
+    println("Displaying capture taken " + (millis() - timestamp) + " milliseconds ago. Diff from last timestamp: " + timeDiff);
+    lastTimestamp = timestamp;
   }
 
   if (showCapture) {
