@@ -222,7 +222,7 @@ class Worker extends Thread {
   // won't work well because only a small percentage of them will appear. Hmm.
   // I could actually probably append them the minute I get them, since they're mutable. Although
   // not guaranteed, and (maybe?) doesn't solve the problem
-  //
+  // TODO next: try this last approach!
   void run() {
     while (true) {
       // Perform triage on what needs doing
@@ -231,7 +231,11 @@ class Worker extends Thread {
         captureEvent(capture);
       }
 
-      if (tadpoleStateQueue.size() < 100 && !currentTadpolesBeingUpdated) {
+      if (displayQueue.size() > 4) {
+        // Display queue is getting a bit behind; do an extra draw cycle
+        drawScreen();
+      }
+      else if (tadpoleStateQueue.size() < 10 && !currentTadpolesBeingUpdated) {
           //println("Let's update!");
           currentTadpolesBeingUpdated = true;
           Tad[] currentTadpoles = tadpoleStateQueue.peekFirst();
@@ -248,7 +252,7 @@ class Worker extends Thread {
         } else {
           println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
           try {
-            sleep(100); // in ms
+            sleep(30); // in ms
           }
           catch (InterruptedException e) {
             println("You interrupted my damn nap.");
@@ -323,20 +327,6 @@ void updateTadpoles(Tad[] currentTadpoles, int timestamp) {
 
 void drawTadpoles(Tad[] tadpoles) {
   println("Attempting to draw.");
-  /*
-  try {
-      println("length: " + tadpoles.length);
-  } catch (NullPointerException npe) {
-      println("NPE! " + tadpoles);
-      return;
-  }
-  if (drawLocked) {
-    println("drawlocked. Returning. Length of draw queue: " + displayQueue.size());
-    return;
-  }
-  println("drawing.");
-  drawLocked = true; // TODO look into locking options
-  */
   PGraphics nextScreen = pgPool.get();
   nextScreen.beginDraw();
   nextScreen.background(0, 0, 0.7);
@@ -357,12 +347,11 @@ void drawTadpoles(Tad[] tadpoles) {
 }
 
 void draw() {
-  
-  // These next three calls will actually end up being in Worker, not in the main draw().
-  //captureEvent(capture);
-  //updateTadpoles();
-  //drawTadpoles(tadpoleStateQueue.remove());
+  drawScreen();
+}
 
+void drawScreen() {
+  
   if (displayQueue.size() == 0) return; //TODO should be able to delete this now that I'm using thread-safe queues
   PGraphics nextScreen = displayQueue.pollFirst();
   int timestamp = displayTimestampQueue.pollFirst();
@@ -383,7 +372,9 @@ void draw() {
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
 
   // report performance statistics
-  println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
+  if (frameCount%10==0) {
+    println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
+  }
   if (frameCount%50==0) {
     println("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
   }
