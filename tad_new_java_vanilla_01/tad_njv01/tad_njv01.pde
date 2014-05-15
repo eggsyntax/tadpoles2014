@@ -118,21 +118,190 @@ PgPool pgPool;
 PriorityBlockingQueue<TadpoleState> tadpoleStateQueue = new PriorityBlockingQueue();
 PriorityBlockingQueue<PGraphicsWithTimestamp> displayQueue = new PriorityBlockingQueue();
 
-// Two temporary deques and an int to track timestamps
-//LinkedBlockingDeque<Integer> tadpoleStateTimestampQueue = new LinkedBlockingDeque();
-//LinkedBlockingDeque<Integer> displayTimestampQueue = new LinkedBlockingDeque();
-//LinkedBlockingDeque<Integer> tadpoleStateCaptureTimestampQueue = new LinkedBlockingDeque();
-//LinkedBlockingDeque<Integer> displayCaptureTimestampQueue = new LinkedBlockingDeque();
-//int lastTimestamp;
+void setup() {
+  size(320, 256, P2D); // P2D?
+  cameraSetup();
+  
+  println("Number of cores: " + numCores);
+  int xInitial,yInitial;
+  float brightnessInitial;
+  
+  frameRate(10); // TODO put back up high?
+  maxDist = sqrt(width*width + height*height); // What is the farthest one point can be from another?
+  pgPool = new PgPool(PG_POOL_SIZE);
+  
+  smooth();
+  colorMode(HSB,1.0);
+  //println("Base colorMode: " + self.colorMode);
+  camBri = new float[width*height];
+  
+  noStroke();
+  ellipseMode(CENTER);
+  
+  Tad[] tads = new Tad[NUMTADS];
+  for (int i=0;i<NUMTADS;i++) {
+    brightnessInitial = random(1.0);
+    xInitial = (int)random(width);
+    yInitial = (int)random(height);
+    tads[i] = new Tad(brightnessInitial, new Point(xInitial,yInitial));
+  }
+  // push our newborn tadpoles into the tadpoleStateQueue
+  tadpoleStateQueue.add(new TadpoleState(tads, millis()));
 
-//boolean updateLocked = false;
-//boolean drawLocked = false;
-boolean currentTadpolesBeingUpdated = false;
+  lastmillis=millis();
+  
+  captureEvent(capture);
+
+  // And finally, create some Workers to do all the work
+  Worker[] workers = new Worker[numCores-1];
+  for (int i=0; i<(numCores-1); i++) {
+    Worker worker = new Worker();
+    worker.start();
+    workers[i] = worker;
+  }
+}
+
+class Worker extends Thread {
+  /** Looks for something to do and does it. Either processes a
+   *  capture and puts it in the capture queue or pulls a capture
+   *  out of the queue and draws an image.
+   *
+   *  1. If there's a capture available, read it and update the
+   *    camBri array.
+   *  2. If the tadpole-state queue is short, grab the first member
+   *    of it and update all the tadpoles using the camBri array,
+   *    appending the result to the tadpole-state queue.
+   *  3. If the PGraphics queue is short, pop the first member of the
+   *    tadpole-state queue and use it to draw to a PGraphics object
+   *    from the pool, appending the result to the PGraphics queue.
+   *  4. Otherwise take a nice nap.
+   *
+   **/
+
+  Worker() {
+
+  }
+
+  // Overriding "start()"
+  void start () {
+    super.start();
+  }
+
+  // Run method
+  void run() {
+    while (true) {
+      // Perform triage on what needs doing
+      if (capture.available()) {
+        //println("Let's capture!");
+        captureEvent(capture);
+      }
+
+      TadpoleState latestTadpoles = tadpoleStateQueue.peek();
+      if (displayQueue.size() > 4) {
+        println("Extra display cycle");
+        // Display queue is getting a bit behind; do an extra draw cycle
+        drawScreen();
+      }
+      else if (!latestTadpoles.alreadyUpdated) {
+        //println("Let's update!");
+        //if (latestTadpoles.tads != null) {
+          Tad[] newtads = updateTadpoles(latestTadpoles.tads);
+
+          drawTadpoles(new TadpoleState(newtads, millis()));
+        //}
+      }
+      else {
+        println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
+        try {
+          sleep(20); // in ms
+        }
+        catch (InterruptedException e) {
+          println("You interrupted my damn nap.");
+          exit();
+        }
+      }
+    }
+  }
+  // TODO possibly implement quit() method
+}
+
+Tad[] updateTadpoles(Tad[] currentTadpoles) {
+  //println("Update based on Tad[] " + currentTadpoles);
+  //println("updating. stateQueue length: " + tadpoleStateQueue.size());
+  Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
+
+  // We always base the next tadpole state on the most current one we have
+
+  for(int i=0;i<NUMTADS;i++) {
+    t = currentTadpoles[i];
+    Tad newtad = t.update();
+    newtads[i] = newtad;
+  }
+
+  return newtads;
+}
+
+void drawTadpoles(TadpoleState state) {
+  PGraphics nextScreen = pgPool.get();
+  Tad[] tadpoles = state.tads;
+  int timestamp = state.timestamp;
+  nextScreen.beginDraw();
+  nextScreen.background(0, 0, 0.7); // Delete leftover tadpoles from last time it was used
+  for(int i=0;i<NUMTADS;i++) {
+    t = tadpoles[i];
+    t.draw(nextScreen);
+  }
+  nextScreen.endDraw();
+
+  displayQueue.put(new PGraphicsWithTimestamp(nextScreen, timestamp));
+}
+
+void draw() {
+  drawScreen();
+}
+
+void drawScreen() {
+  
+  if (displayQueue.size() == 0) return; //TODO should be able to delete this now that I'm using thread-safe queues
+  PGraphicsWithTimestamp nextScreen = null;
+  try {
+    nextScreen = displayQueue.take();
+  }
+  catch (InterruptedException e) {
+    println("pgPool putting interrupted, argh!");
+  }
+  if (nextScreen != null) {
+    image(nextScreen.pg, 0, 0);
+    pgPool.release(nextScreen.pg);
+    int timeDiff = millis() - nextScreen.timestamp;
+    println("Displaying capture taken " + timeDiff + " milliseconds ago (at " + nextScreen.timestamp + ").");
+    //lastTimestamp = timestamp;
+  }
+
+  if (showCapture) {
+    // Overlay actual image if mouse clicked
+    tint(0,0,1,(float)mouseX/width);    
+    image(capture,0,0); // TODO why am I getting a crash on this?
+  }
+
+
+  time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
+
+  // report performance statistics
+  if (frameCount%10==0) {
+    println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
+  }
+  if (frameCount%50==0) {
+    println("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
+  }
+}
+
 
 class TadpoleState implements Comparable<TadpoleState> {
   /** contains an array of tadpoles along with a timestamp (for prioritization) **/
   public Tad[] tads;
   public int timestamp;
+  public boolean alreadyUpdated = false;
 
   public TadpoleState(Tad[] tads, int timestamp) {
     this.tads = tads;
@@ -224,197 +393,6 @@ class PgPool {
 
   public void release(PGraphics pg) {
     _put(pg);
-  }
-}
-
-class Worker extends Thread {
-  /** Looks for something to do and does it. Either processes a
-   *  capture and puts it in the capture queue or pulls a capture
-   *  out of the queue and draws an image.
-   *
-   *  1. If there's a capture available, read it and update the
-   *    camBri array.
-   *  2. If the tadpole-state queue is short, grab the first member
-   *    of it and update all the tadpoles using the camBri array,
-   *    appending the result to the tadpole-state queue.
-   *  3. If the PGraphics queue is short, pop the first member of the
-   *    tadpole-state queue and use it to draw to a PGraphics object
-   *    from the pool, appending the result to the PGraphics queue.
-   *  4. Otherwise take a nice nap.
-   *
-   **/
-
-  Worker() {
-
-  }
-
-  // Overriding "start()"
-  void start () {
-    super.start();
-  }
-
-  // Run method
-  // TODO The problem at this point: threads take a variable time to complete, so 
-  // the display screens (maybe the tadpole states also) are being put in the queue
-  // out of order (by, eg, 65 ms). What to do about this? Maybe look at LinkedList options so they
-  // can more easily swap elements? Or some kind of map? But keying by millis()
-  // won't work well because only a small percentage of them will appear. Hmm.
-  // I could actually probably append them the minute I get them, since they're mutable. Although
-  // not guaranteed, and (maybe?) doesn't solve the problem
-  // TODO next: try this last approach!
-  void run() {
-    while (true) {
-      // Perform triage on what needs doing
-      if (capture.available()) {
-        //println("Let's capture!");
-        captureEvent(capture);
-      }
-
-      if (displayQueue.size() > 4) {
-        // Display queue is getting a bit behind; do an extra draw cycle
-        drawScreen();
-      }
-      else if (!currentTadpolesBeingUpdated) { // TODO still need currentTadpolesBeingUpdated?
-          //println("Let's update!");
-          currentTadpolesBeingUpdated = true;
-          TadpoleState latestTadpoles = tadpoleStateQueue.peek();
-          if (latestTadpoles.tads != null) {
-            Tad[] newtads = updateTadpoles(latestTadpoles.tads);
-            currentTadpolesBeingUpdated = false;
-
-            drawTadpoles(new TadpoleState(newtads, millis()));
-          }
-      } else {
-          println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
-          try {
-            sleep(100); // in ms
-          }
-          catch (InterruptedException e) {
-            println("You interrupted my damn nap.");
-            exit();
-          }
-      }
-    }
-  }
-  // TODO possibly implement quit() method
-}
-
-void setup() {
-  size(320, 256, P2D); // P2D?
-  cameraSetup();
-  
-  println("Number of cores: " + numCores);
-  int xInitial,yInitial;
-  float brightnessInitial;
-  
-  frameRate(30); // TODO put back up high?
-  maxDist = sqrt(width*width + height*height); // What is the farthest one point can be from another?
-  pgPool = new PgPool(PG_POOL_SIZE);
-  
-  smooth();
-  colorMode(HSB,1.0);
-  //println("Base colorMode: " + self.colorMode);
-  camBri = new float[width*height];
-  
-  noStroke();
-  ellipseMode(CENTER);
-  
-  Tad[] tads = new Tad[NUMTADS];
-  for (int i=0;i<NUMTADS;i++) {
-    brightnessInitial = random(1.0);
-    xInitial = (int)random(width);
-    yInitial = (int)random(height);
-    tads[i] = new Tad(brightnessInitial, new Point(xInitial,yInitial));
-  }
-  // push our newborn tadpoles into the tadpoleStateQueue
-  tadpoleStateQueue.add(new TadpoleState(tads, millis()));
-
-  lastmillis=millis();
-  
-  captureEvent(capture);
-
-  // And finally, create some Workers to do all the work
-  Worker[] workers = new Worker[numCores-1];
-  for (int i=0; i<(numCores-1); i++) {
-    Worker worker = new Worker();
-    worker.start();
-    workers[i] = worker;
-  }
-}
-
-// TODO Now that I've got threading working, I may be able to combine
-// updateTadpoles and drawTadpoles. It might be better to just have
-// a particular Worker follow one state from capture to being drawn to
-// a PGraphics object. Hmm.
-
-Tad[] updateTadpoles(Tad[] currentTadpoles) {
-  //println("Update based on Tad[] " + currentTadpoles);
-  //println("updating. stateQueue length: " + tadpoleStateQueue.size());
-  Tad[] newtads = new Tad[NUMTADS]; // Temporary storage for updated tadpoles
-
-  // We always base the next tadpole state on the most current one we have
-
-  for(int i=0;i<NUMTADS;i++) {
-    t = currentTadpoles[i];
-    Tad newtad = t.update();
-    newtads[i] = newtad;
-  }
-
-  return newtads;
-}
-
-void drawTadpoles(TadpoleState state) {
-  PGraphics nextScreen = pgPool.get();
-  Tad[] tadpoles = state.tads;
-  int timestamp = state.timestamp;
-  nextScreen.beginDraw();
-  nextScreen.background(0, 0, 0.7); // Delete leftover tadpoles from last time it was used
-  for(int i=0;i<NUMTADS;i++) {
-    t = tadpoles[i];
-    t.draw(nextScreen);
-  }
-  nextScreen.endDraw();
-
-  displayQueue.put(new PGraphicsWithTimestamp(nextScreen, timestamp));
-}
-
-void draw() {
-  drawScreen();
-}
-
-void drawScreen() {
-  
-  if (displayQueue.size() == 0) return; //TODO should be able to delete this now that I'm using thread-safe queues
-  PGraphicsWithTimestamp nextScreen = null;
-  try {
-    nextScreen = displayQueue.take();
-  }
-  catch (InterruptedException e) {
-    println("pgPool putting interrupted, argh!");
-  }
-  if (nextScreen != null) {
-    image(nextScreen.pg, 0, 0);
-    pgPool.release(nextScreen.pg);
-    int timeDiff = millis() - nextScreen.timestamp;
-    //println("Displaying capture taken " + timeDiff + " milliseconds ago.");
-    //lastTimestamp = timestamp;
-  }
-
-  if (showCapture) {
-    // Overlay actual image if mouse clicked
-    tint(0,0,1,(float)mouseX/width);    
-    image(capture,0,0); // TODO why am I getting a crash on this?
-  }
-
-
-  time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
-
-  // report performance statistics
-  if (frameCount%10==0) {
-    //println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
-  }
-  if (frameCount%50==0) {
-    println("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
   }
 }
 
