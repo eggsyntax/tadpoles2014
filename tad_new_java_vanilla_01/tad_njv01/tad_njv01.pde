@@ -127,12 +127,12 @@ PriorityBlockingQueue<PGraphicsWithTimestamp> displayQueue = new PriorityBlockin
 
 //boolean updateLocked = false;
 //boolean drawLocked = false;
-boolean currentTadpolesBeingUpdated = false;
 
 class TadpoleState implements Comparable<TadpoleState> {
   /** contains an array of tadpoles along with a timestamp (for prioritization) **/
   public Tad[] tads;
   public int timestamp;
+  public boolean alreadyUpdated = false;
 
   public TadpoleState(Tad[] tads, int timestamp) {
     this.tads = tads;
@@ -273,23 +273,35 @@ class Worker extends Thread {
       if (displayQueue.size() > 4) {
         // Display queue is getting a bit behind; do an extra draw cycle
         drawScreen();
+        return;
       }
-      else if (tadpoleStateQueue.size() < 5 && !currentTadpolesBeingUpdated) { // TODO still need currentTadpolesBeingUpdated?
+
+      // TODO NOT WORKING! Because the peeking isn't thread-safe. Can't guarantee that between the
+      // time we peek and the time we evaluate, something hasn't happened. We end up with a spuriously
+      // locked state pretty early. Not *exactly* sure what's happening. Or we end up with an empty
+      // state queue. Think about either a) how to do this atomically, or b) some other solution.
+
+      // We always base the next tadpole state on the most current one we have
+      TadpoleState latestTadpoles = tadpoleStateQueue.peek();
+
+      if (latestTadpoles != null && tadpoleStateQueue.size() < 5 && !latestTadpoles.alreadyUpdated && latestTadpoles.tads != null) {
           //println("Let's update!");
-          currentTadpolesBeingUpdated = true;
-          TadpoleState latestTadpoles = tadpoleStateQueue.peek();
-          if (latestTadpoles.tads != null) {
-            Tad[] newtads = updateTadpoles(latestTadpoles.tads);
-            tadpoleStateQueue.add(new TadpoleState(newtads, millis()));
-            currentTadpolesBeingUpdated = false;
-          }
+          latestTadpoles.alreadyUpdated = true;
+          Tad[] newtads = updateTadpoles(latestTadpoles.tads);
+          tadpoleStateQueue.add(new TadpoleState(newtads, millis()));
 
       } else {
+        print("Conditions: null? " + (latestTadpoles==null));
+        print("; size? " + tadpoleStateQueue.size());
+        print("; alreadyUp? " + latestTadpoles.alreadyUpdated);
+        println("; tads null? " + (latestTadpoles.tads==null));
         //println("Let's draw!");
         TadpoleState state = tadpoleStateQueue.poll();
+
         if (state != null) { // TODO still needed?
           drawTadpoles(state);
-        } else {
+        }
+        else {
           println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
           try {
             sleep(100); // in ms
