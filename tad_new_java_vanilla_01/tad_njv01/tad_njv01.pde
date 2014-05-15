@@ -348,6 +348,11 @@ void setup() {
   }
 }
 
+// TODO Now that I've got threading working, I may be able to combine
+// updateTadpoles and drawTadpoles. It might be better to just have
+// a particular Worker follow one state from capture to being drawn to
+// a PGraphics object. Hmm.
+
 Tad[] updateTadpoles(Tad[] currentTadpoles) {
   //println("Update based on Tad[] " + currentTadpoles);
   //println("updating. stateQueue length: " + tadpoleStateQueue.size());
@@ -395,7 +400,7 @@ void drawScreen() {
   }
   if (nextScreen != null) {
     image(nextScreen.pg, 0, 0);
-    pgPool.release(nextScreen.pg); // TODO should this release actually be happening in drawScreen? Probably.
+    pgPool.release(nextScreen.pg);
     int timeDiff = millis() - nextScreen.timestamp;
     //println("Displaying capture taken " + timeDiff + " milliseconds ago.");
     //lastTimestamp = timestamp;
