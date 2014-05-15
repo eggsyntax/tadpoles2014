@@ -274,22 +274,17 @@ class Worker extends Thread {
         // Display queue is getting a bit behind; do an extra draw cycle
         drawScreen();
       }
-      else if (tadpoleStateQueue.size() < 5 && !currentTadpolesBeingUpdated) { // TODO still need currentTadpolesBeingUpdated?
+      else if (!currentTadpolesBeingUpdated) { // TODO still need currentTadpolesBeingUpdated?
           //println("Let's update!");
           currentTadpolesBeingUpdated = true;
           TadpoleState latestTadpoles = tadpoleStateQueue.peek();
           if (latestTadpoles.tads != null) {
             Tad[] newtads = updateTadpoles(latestTadpoles.tads);
-            tadpoleStateQueue.add(new TadpoleState(newtads, millis()));
             currentTadpolesBeingUpdated = false;
-          }
 
+            drawTadpoles(new TadpoleState(newtads, millis()));
+          }
       } else {
-        //println("Let's draw!");
-        TadpoleState state = tadpoleStateQueue.poll();
-        if (state != null) { // TODO still needed?
-          drawTadpoles(state);
-        } else {
           println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
           try {
             sleep(100); // in ms
@@ -298,7 +293,6 @@ class Worker extends Thread {
             println("You interrupted my damn nap.");
             exit();
           }
-        }
       }
     }
   }
