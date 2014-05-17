@@ -115,29 +115,55 @@ int numCores = Runtime.getRuntime().availableProcessors();
 final int PG_POOL_SIZE = 10;
 final int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
-// TODO what if I subclass PriorityBlockingQueue so that it handles peek() in a way that locks
-// it? That might simplify the threading problems I have. The new class would be the single
-// source of decisions about what workers got to use what TadpoleState when.
 
-PriorityBlockingQueue<TadpoleState> tadpoleStateQueue = new PriorityBlockingQueue();
+TadpoleStateManager tadpoleStateQueue = new TadpoleStateManager();
+//PriorityBlockingQueue<TadpoleState> tadpoleStateQueue = new PriorityBlockingQueue();
 PriorityBlockingQueue<PGraphicsWithTimestamp> displayQueue = new PriorityBlockingQueue();
+
+class TadpoleStateManager {
+  // what if I subclass PriorityBlockingQueue so that it handles peek() in a way that locks
+  // it? That might simplify the threading problems I have. The new class would be the single
+  // source of decisions about what workers got to use what TadpoleState when.
+  PriorityBlockingQueue<TadpoleState> stateQueue;
+
+  public TadpoleStateManager() {
+    stateQueue = new PriorityBlockingQueue();
+  }
+  // TODO YOU ARE HERE
+
+  public synchronized TadpoleState peek() {
+    // Ensure that only one worker can update a tadpole at a time.
+    // peek() will only return the last-added tadpoleState, and
+    // that particular tadpoleState can only be returned once
+    // (because after that it has the alreadyUpdated status).
+    TadpoleState tadpoleState = stateQueue.peek();
+    if (tadpoleState.alreadyUpdated) return null;
+    tadpoleState.alreadyUpdated = true;
+    return tadpoleState;    
+  }
+
+  public synchronized int size() {
+    return stateQueue.size();
+  }
+
+  public synchronized void add(TadpoleState state) {
+    stateQueue.add(state);
+  }
+
+  public synchronized TadpoleState poll() {
+    return stateQueue.poll();
+  }
+}
 
 class TadpoleState implements Comparable<TadpoleState> {
   /** contains an array of tadpoles along with a timestamp (for prioritization) **/
   public Tad[] tads;
   public int timestamp;
-  public boolean alreadyUpdated = false;
-  public boolean locked = false;
+  public boolean alreadyUpdated;
 
   public TadpoleState(Tad[] tads, int timestamp) {
     this.tads = tads;
     this.timestamp = timestamp;
-  }
-
-  public TadpoleState lock() {
-    if (locked) return null; // Already locked, forget about it.
-    locked = true;
-    return this; // for convenience
   }
 
   @Override
@@ -255,14 +281,6 @@ class Worker extends Thread {
   }
 
   // Run method
-  // TODO The problem at this point: threads take a variable time to complete, so 
-  // the display screens (maybe the tadpole states also) are being put in the queue
-  // out of order (by, eg, 65 ms). What to do about this? Maybe look at LinkedList options so they
-  // can more easily swap elements? Or some kind of map? But keying by millis()
-  // won't work well because only a small percentage of them will appear. Hmm.
-  // I could actually probably append them the minute I get them, since they're mutable. Although
-  // not guaranteed, and (maybe?) doesn't solve the problem
-  // TODO next: try this last approach!
   void run() {
     while (true) {
       // Perform triage on what needs doing
@@ -277,34 +295,23 @@ class Worker extends Thread {
         return;
       }
 
-      // TODO NOT WORKING! Because the peeking isn't thread-safe? Can't guarantee that between the
-      // time we peek and the time we evaluate, something hasn't happened. We end up with a spuriously
-      // locked state pretty early. Not *exactly* sure what's happening. Or we end up with an empty
-      // state queue. Do we ever go further if there's an empty state queue?
-      // Think about either a) how to do this atomically, or b) some other solution.
-
-      // We always base the next tadpole state on the most current one we have
-      
-      TadpoleState latestTadpoles = tadpoleStateQueue.peek().lock();
-      if (latestTadpoles == null) return;
-      /*
+      TadpoleState latestTadpoles = tadpoleStateQueue.peek();
       print("Conditions: null? " + (latestTadpoles==null));
       print("; size? " + tadpoleStateQueue.size());
-      print("; alreadyUp? " + latestTadpoles.alreadyUpdated);
-      println("; tads null? " + (latestTadpoles.tads==null));
-      */
-
-      if (tadpoleStateQueue.size() < 5 && latestTadpoles.tads != null && (!latestTadpoles.alreadyUpdated || tadpoleStateQueue.size()==1)) { // awkward as fuck to have the null check AND the locked check AND the alreadyUpdated check...
-          //println("Let's update!");
-          latestTadpoles.alreadyUpdated = true;
+      //print("; alreadyUp? " + latestTadpoles.alreadyUpdated);
+      if (latestTadpoles != null) {
+        println("; tads null? " + (latestTadpoles.tads==null));
+      } else {
+        println("; tads null? n/a");
+      }
+      if (latestTadpoles != null && tadpoleStateQueue.size() < 5 && latestTadpoles.tads != null) {
+          println("Let's update!");
           Tad[] newtads = updateTadpoles(latestTadpoles.tads);
           tadpoleStateQueue.add(new TadpoleState(newtads, millis()));
           //println("We updated!");
-          latestTadpoles.locked = false;
 
       } else if (tadpoleStateQueue.size() > 1) { // So we don't run out of tadpoles to peek at
-        latestTadpoles.locked = false;
-        //println("let's draw!");
+        println("let's draw!");
         TadpoleState state = tadpoleStateQueue.poll();
 
         if (state != null) { // TODO still needed?
@@ -312,7 +319,6 @@ class Worker extends Thread {
         }
       }
       else {
-        latestTadpoles.locked = false;
         println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
         try {
           sleep(100); // in ms
