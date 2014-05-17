@@ -122,16 +122,6 @@ PgPool pgPool;
 PriorityBlockingQueue<TadpoleState> tadpoleStateQueue = new PriorityBlockingQueue();
 PriorityBlockingQueue<PGraphicsWithTimestamp> displayQueue = new PriorityBlockingQueue();
 
-// Two temporary deques and an int to track timestamps
-//LinkedBlockingDeque<Integer> tadpoleStateTimestampQueue = new LinkedBlockingDeque();
-//LinkedBlockingDeque<Integer> displayTimestampQueue = new LinkedBlockingDeque();
-//LinkedBlockingDeque<Integer> tadpoleStateCaptureTimestampQueue = new LinkedBlockingDeque();
-//LinkedBlockingDeque<Integer> displayCaptureTimestampQueue = new LinkedBlockingDeque();
-//int lastTimestamp;
-
-//boolean updateLocked = false;
-//boolean drawLocked = false;
-
 class TadpoleState implements Comparable<TadpoleState> {
   /** contains an array of tadpoles along with a timestamp (for prioritization) **/
   public Tad[] tads;
