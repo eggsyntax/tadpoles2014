@@ -133,10 +133,17 @@ class TadpoleState implements Comparable<TadpoleState> {
   public Tad[] tads;
   public int timestamp;
   public boolean alreadyUpdated = false;
+  public boolean locked = false;
 
   public TadpoleState(Tad[] tads, int timestamp) {
     this.tads = tads;
     this.timestamp = timestamp;
+  }
+
+  public TadpoleState lock() {
+    if (locked) return null; // Already locked, forget about it.
+    locked = true;
+    return this; // for convenience
   }
 
   @Override
@@ -276,40 +283,49 @@ class Worker extends Thread {
         return;
       }
 
-      // TODO NOT WORKING! Because the peeking isn't thread-safe. Can't guarantee that between the
+      // TODO NOT WORKING! Because the peeking isn't thread-safe? Can't guarantee that between the
       // time we peek and the time we evaluate, something hasn't happened. We end up with a spuriously
       // locked state pretty early. Not *exactly* sure what's happening. Or we end up with an empty
-      // state queue. Think about either a) how to do this atomically, or b) some other solution.
+      // state queue. Do we ever go further if there's an empty state queue?
+      // Think about either a) how to do this atomically, or b) some other solution.
 
       // We always base the next tadpole state on the most current one we have
-      TadpoleState latestTadpoles = tadpoleStateQueue.peek();
+      
+      TadpoleState latestTadpoles = tadpoleStateQueue.peek().lock();
+      if (latestTadpoles == null) return;
+      /*
+      print("Conditions: null? " + (latestTadpoles==null));
+      print("; size? " + tadpoleStateQueue.size());
+      print("; alreadyUp? " + latestTadpoles.alreadyUpdated);
+      println("; tads null? " + (latestTadpoles.tads==null));
+      */
 
-      if (latestTadpoles != null && tadpoleStateQueue.size() < 5 && !latestTadpoles.alreadyUpdated && latestTadpoles.tads != null) {
+      if (tadpoleStateQueue.size() < 5 && latestTadpoles.tads != null && (!latestTadpoles.alreadyUpdated || tadpoleStateQueue.size()==1)) { // awkward as fuck to have the null check AND the locked check AND the alreadyUpdated check...
           //println("Let's update!");
           latestTadpoles.alreadyUpdated = true;
           Tad[] newtads = updateTadpoles(latestTadpoles.tads);
           tadpoleStateQueue.add(new TadpoleState(newtads, millis()));
+          //println("We updated!");
+          latestTadpoles.locked = false;
 
-      } else {
-        print("Conditions: null? " + (latestTadpoles==null));
-        print("; size? " + tadpoleStateQueue.size());
-        print("; alreadyUp? " + latestTadpoles.alreadyUpdated);
-        println("; tads null? " + (latestTadpoles.tads==null));
-        //println("Let's draw!");
+      } else if (tadpoleStateQueue.size() > 1) { // So we don't run out of tadpoles to peek at
+        latestTadpoles.locked = false;
+        //println("let's draw!");
         TadpoleState state = tadpoleStateQueue.poll();
 
         if (state != null) { // TODO still needed?
           drawTadpoles(state);
         }
-        else {
-          println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
-          try {
-            sleep(100); // in ms
-          }
-          catch (InterruptedException e) {
-            println("You interrupted my damn nap.");
-            exit();
-          }
+      }
+      else {
+        latestTadpoles.locked = false;
+        println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
+        try {
+          sleep(100); // in ms
+        }
+        catch (InterruptedException e) {
+          println("You interrupted my damn nap.");
+          exit();
         }
       }
     }
@@ -424,7 +440,7 @@ void drawScreen() {
 
   // report performance statistics
   if (frameCount%10==0) {
-    //println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
+    println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
   }
   if (frameCount%50==0) {
     println("\nave: " + avetime + " ms; cur: " + time + "; frameCount: " + frameCount);
@@ -524,6 +540,7 @@ class Tad {
             }
         }
         return destination;
+
     }
 
     Tad update() {
@@ -546,6 +563,7 @@ class Tad {
     
     // TODO was not actually being used in prev version
     // float distance = abs(xp-xpDes) + abs(yp-ypDes); // not Pythagorean, just a sum -- much faster but less accurate 
+
 
     float xa = constrain((destination.x-position.x) / maxDist, AMIN, AMAX);
     float ya = constrain ((destination.y-position.y) / maxDist, AMIN, AMAX);
