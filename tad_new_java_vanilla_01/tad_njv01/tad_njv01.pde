@@ -115,6 +115,10 @@ int numCores = Runtime.getRuntime().availableProcessors();
 final int PG_POOL_SIZE = 10;
 final int IMAGE_POOL_SIZE = 10;
 PgPool pgPool;
+// TODO what if I subclass PriorityBlockingQueue so that it handles peek() in a way that locks
+// it? That might simplify the threading problems I have. The new class would be the single
+// source of decisions about what workers got to use what TadpoleState when.
+
 PriorityBlockingQueue<TadpoleState> tadpoleStateQueue = new PriorityBlockingQueue();
 PriorityBlockingQueue<PGraphicsWithTimestamp> displayQueue = new PriorityBlockingQueue();
 
