@@ -137,7 +137,9 @@ class TadpoleStateManager {
     // that particular tadpoleState can only be returned once
     // (because after that it has the alreadyUpdated status).
     TadpoleState tadpoleState = stateQueue.peek();
-    if (tadpoleState.alreadyUpdated) return null;
+    if (tadpoleState.alreadyUpdated) {
+      return null;
+    }
     tadpoleState.alreadyUpdated = true;
     return tadpoleState;    
   }
@@ -170,8 +172,8 @@ class TadpoleState implements Comparable<TadpoleState> {
   public int compareTo(TadpoleState other) {
     // Compare based on timestamp. Reversed from what would be intuitive because
     // the head of PriorityQueue is the *smallest* item.
-    if (this.timestamp < other.timestamp) return 1;
-    if (this.timestamp > other.timestamp) return -1;
+    if (this.timestamp < other.timestamp) return -1;
+    if (this.timestamp > other.timestamp) return 1;
     return 0;
   }
 }
@@ -296,22 +298,13 @@ class Worker extends Thread {
       }
 
       TadpoleState latestTadpoles = tadpoleStateQueue.peek();
-      print("Conditions: null? " + (latestTadpoles==null));
-      print("; size? " + tadpoleStateQueue.size());
-      //print("; alreadyUp? " + latestTadpoles.alreadyUpdated);
-      if (latestTadpoles != null) {
-        println("; tads null? " + (latestTadpoles.tads==null));
-      } else {
-        println("; tads null? n/a");
-      }
       if (latestTadpoles != null && tadpoleStateQueue.size() < 5 && latestTadpoles.tads != null) {
-          println("Let's update!");
+          //println("Let's update! " + tadpoleStateQueue.size());
           Tad[] newtads = updateTadpoles(latestTadpoles.tads);
           tadpoleStateQueue.add(new TadpoleState(newtads, millis()));
-          //println("We updated!");
 
       } else if (tadpoleStateQueue.size() > 1) { // So we don't run out of tadpoles to peek at
-        println("let's draw!");
+        //println("let's draw!");
         TadpoleState state = tadpoleStateQueue.poll();
 
         if (state != null) { // TODO still needed?
