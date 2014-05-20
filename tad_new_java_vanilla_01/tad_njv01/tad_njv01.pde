@@ -91,7 +91,7 @@ Or in my case just: ':make &'. See https://stackoverflow.com/questions/666453/ru
 */
 
 // constants //
-final static int NUMTADS = 10000;
+final static int NUMTADS = 30000;
 final static boolean skipGoodEnough = true;
 final static float VMAX = 1500, AMAX = 1100;
 float VMIN = -1 * VMAX, AMIN = -1 * AMAX; // avoid having to multiply by -1 each time
@@ -312,7 +312,7 @@ class Worker extends Thread {
         }
       }
       else {
-        println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
+        //println("Sleeping. tadpole/draw queues: " + tadpoleStateQueue.size() + ", " + displayQueue.size());
         try {
           sleep(100); // in ms
         }
@@ -432,7 +432,7 @@ void drawScreen() {
   time = millis() - lastmillis; lastmillis = millis(); avetime = ((avetime*frameCount) + time) / (frameCount+1); 
 
   // report performance statistics
-  if (frameCount%10==0) {
+  if (frameCount%25==0) {
     println("stateQueue: " + tadpoleStateQueue.size() + "; displayQueue: " + displayQueue.size());
   }
   if (frameCount%50==0) {
